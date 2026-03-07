@@ -1,14 +1,16 @@
 "use client";
 
+import { DEFAULT_SEPOLIA_RPC_URL, STRK_TOKEN_ADDRESS } from '@/constants';
 import { useCavos } from '@cavos/react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useState } from 'react';
+import { RpcProvider } from 'starknet';
 
 export function ConnectedWallet() {
-    const { user, execute, walletStatus } = useCavos();
+    const { user, address, execute, walletStatus } = useCavos();
 
     const [recipientAddress, setRecipientAddress] = useState('');
     const [amount, setAmount] = useState('');
@@ -17,7 +19,7 @@ export function ConnectedWallet() {
     const [balanceError, setBalanceError] = useState<string | null>(null);
 
     const handleBalance = async () => {
-        if (!walletStatus.isReady || !user?.id) {
+        if (!walletStatus.isReady || !address) {
             setBalanceError('Wallet not ready yet.');
             return;
         }
@@ -26,17 +28,30 @@ export function ConnectedWallet() {
         setBalanceError(null);
 
         try {
-            const result = await execute({
-                contractAddress: '0x049D36570D4e46f48e99674bd3fcc84644DdD6b96F7C741B1562B82f9e004dC7',
-                entrypoint: 'balanceOf',
-                calldata: [user.id],
+            const provider = new RpcProvider({
+                nodeUrl: DEFAULT_SEPOLIA_RPC_URL,
             });
 
-            setBalance(String(result));
-            console.log('Balance:', result);
+            const result = await provider.callContract({
+                contractAddress: STRK_TOKEN_ADDRESS,
+                entrypoint: 'balanceOf',
+                calldata: [address],
+            });
+
+            const low = BigInt(result[0] ?? '0');
+            const high = BigInt(result[1] ?? '0');
+            const rawBalance = (high << BigInt(128)) + low;
+            const decimals = BigInt('1000000000000000000');
+            const whole = rawBalance / decimals;
+            const fraction = (rawBalance % decimals).toString().padStart(18, '0').slice(0, 4);
+            const trimmedFraction = fraction.replace(/0+$/, '');
+            const formattedBalance = trimmedFraction ? `${whole.toString()}.${trimmedFraction} STRK` : `${whole.toString()} STRK`;
+
+            setBalance(formattedBalance);
+            console.log('STRK balance (raw):', rawBalance.toString());
         } catch (error) {
             console.error('Balance query failed:', error);
-            setBalanceError('Failed to fetch balance.');
+            setBalanceError('Failed to fetch STRK balance.');
         } finally {
             setIsLoadingBalance(false);
         }
@@ -118,7 +133,7 @@ export function ConnectedWallet() {
                 <DropdownMenuContent align="end" className="w-80 p-4">
                     <DropdownMenuLabel className="px-0 pb-4">
                         <div className="text-base">Wallet Balance</div>
-                        <div className="text-xs font-normal text-zinc-500">Check your ETH token balance.</div>
+                        <div className="text-xs font-normal text-zinc-500">Check your STRK token balance.</div>
                     </DropdownMenuLabel>
                     <div className="flex flex-col gap-3">
                         <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
