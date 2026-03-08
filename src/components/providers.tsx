@@ -1,12 +1,13 @@
 'use client';
 
+import { SEPOLIA_CONFIG } from '@/constants';
 import { CavosProvider, SessionKeyPolicy } from '@cavos/react';
 
 const SESSION_POLICY: SessionKeyPolicy = {
   allowedContracts: [
     '0x04718f5a0Fc34cC1AF16A1cdee98fFB20C31f5cD61D6Ab07201858f4287c938D', // STRK token
-    '0x30e391e0fb3020ccdf4d087ef3b9ac43dae293fe77c96897ced8cc86a92c1f0', // StealthRegistry
-    '0x2175848fdac537a13a84aa16b5c1d7cdd4ea063cd7ed344266b99ccc4395085', // StealthAccountFactory
+    SEPOLIA_CONFIG.registryAddress,
+    SEPOLIA_CONFIG.factoryAddress,  
   ],
   spendingLimits: [
     {

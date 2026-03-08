@@ -5,60 +5,113 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SEPOLIA_CONFIG } from "@/constants";
+import { useCavos } from "@cavos/react";
+import { poseidonHashMany } from "@scure/starknet";
+import { RpcProvider } from "starknet";
+import { decodeMetaAddress, generateStealthAddress } from "../../../starknet-stealth-addresses/sdk/src/stealth";
+import type { StealthAddressResult, StealthMetaAddress } from "../../../starknet-stealth-addresses/sdk/src/types";
+
+type MetaAddressData = {
+    schemeId: number;
+    spendingKey: { x: string; y: string };
+    viewingKey: { x: string; y: string };
+};
 
 export function SendStealthPaymentTab() {
     const [recipientAddress, setRecipientAddress] = useState("");
-    const [metaAddress, setMetaAddress] = useState("");
-    const [stealthAddress, setStealthAddress] = useState("");
+    const [metaAddress, setMetaAddress] = useState<MetaAddressData | null>(null);
+    const [stealthAddress, setStealthAddress] = useState<StealthAddressResult | null>(null);
     const [step, setStep] = useState<"initial" | "fetched" | "generated">("initial");
-
-    const handleFetchMeta = () => {
+    const provider = new RpcProvider({ nodeUrl: SEPOLIA_CONFIG.rpcUrl });
+    const { execute } = useCavos();
+    
+    const handleFetchMeta = async () => {
         if (!recipientAddress) return;
-        // Mocking an async fetch here...
-        // const recipientMeta = await registry.get_stealth_meta_address(recipientAddress);
-        // const metaAddress = decodeMetaAddress(
-        //     recipientMeta.spending_pubkey_x,
-        //     recipientMeta.spending_pubkey_y,
-        //     recipientMeta.viewing_pubkey_x,
-        //     recipientMeta.viewing_pubkey_y,
-        //     recipientMeta.scheme_id
-        // );
+        const result = await provider.callContract({
+            contractAddress: SEPOLIA_CONFIG.registryAddress,
+            entrypoint: "get_stealth_meta_address",
+            calldata: [recipientAddress],
+        });
 
-        setMetaAddress("0x5b3c...c19a (Mock Generated Destination)");
+        const schemeId = Number(result[0] ?? "0");
+        const spendingX = result[1] ?? "0";
+        const spendingY = result[2] ?? "0";
+        const viewingX = result[3] ?? "0";
+        const viewingY = result[4] ?? "0";
+
+        const decoded = decodeMetaAddress(spendingX, spendingY, viewingX, viewingY, schemeId);
+        setMetaAddress({
+            schemeId: decoded.schemeId,
+            spendingKey: {
+                x: decoded.spendingKey.x.toString(),
+                y: decoded.spendingKey.y.toString(),
+            },
+            viewingKey: {
+                x: decoded.viewingKey.x.toString(),
+                y: decoded.viewingKey.y.toString(),
+            },
+        });
         setStep("fetched");
     };
 
     const handleGenerate = () => {
-        // Mocking local address generation...
-        // Generate stealth address
-        // const result = generateStealthAddress(
-        //     metaAddress,
-        //     FACTORY_ADDRESS,
-        //     ACCOUNT_CLASS_HASH
-        //   );
+        if (!metaAddress) return;
 
-        setStealthAddress("0x5b3c...c19a (Mock Generated Destination)");
+        const parsedMetaAddress: StealthMetaAddress = {
+            schemeId: metaAddress.schemeId,
+            spendingKey: {
+                x: BigInt(metaAddress.spendingKey.x),
+                y: BigInt(metaAddress.spendingKey.y),
+            },
+            viewingKey: {
+                x: BigInt(metaAddress.viewingKey.x),
+                y: BigInt(metaAddress.viewingKey.y),
+            },
+        };
+
+        const result = generateStealthAddress(
+            parsedMetaAddress,
+            SEPOLIA_CONFIG.factoryAddress,
+            SEPOLIA_CONFIG.accountClassHash,
+        );
+
+        setStealthAddress(result);
         setStep("generated");
     };
 
-    const handleDeployAndAnnounce = () => {
-        // Deploy and announce stealth address
-        // Deploy and send funds
-        // await factory.deploy_stealth_account(
-        //     result.stealthPubkey.x,
-        //     result.stealthPubkey.y,
-        //     salt
-        //   );
-        // TODO: Implement actual deployment and announcement
-        // await registry.announce(
-        //     0, // scheme_id
-        //     result.ephemeralPubkey.x,
-        //     result.ephemeralPubkey.y,
-        //     result.stealthAddress,
-        //     result.viewTag,
-        //     0 // metadata
-        //   );
-        console.log("Deployed and announced stealth address: ", metaAddress);
+    const handleDeployAndAnnounce = async () => {
+        if (!stealthAddress) return;
+        const schemeId = metaAddress?.schemeId ?? 0;
+        const salt = poseidonHashMany([
+            stealthAddress.ephemeralPubkey.x,
+            stealthAddress.ephemeralPubkey.y,
+        ]);
+
+        const deployResult = await execute({
+            contractAddress: SEPOLIA_CONFIG.factoryAddress,
+            entrypoint: "deploy_stealth_account",
+            calldata: [
+                stealthAddress.stealthPubkey.x.toString(),
+                stealthAddress.stealthPubkey.y.toString(),
+                salt.toString(),
+            ],
+        });
+        console.log("Deployed stealth account: ", deployResult);
+
+        const announceResult = await execute({
+            contractAddress: SEPOLIA_CONFIG.registryAddress,
+            entrypoint: "announce",
+            calldata: [
+                schemeId.toString(),
+                stealthAddress.ephemeralPubkey.x.toString(),
+                stealthAddress.ephemeralPubkey.y.toString(),
+                stealthAddress.stealthAddress,
+                stealthAddress.viewTag.toString(),
+                "0",
+            ],
+        });
+        console.log("Announced stealth address: ", announceResult);
     };
 
     return (
@@ -81,6 +134,7 @@ export function SendStealthPaymentTab() {
                                 onChange={(e) => {
                                     setRecipientAddress(e.target.value);
                                     setStep("initial"); // reset flow on input change
+                                    setMetaAddress(null);
                                 }}
                             />
                             <Button onClick={handleFetchMeta} disabled={!recipientAddress}>
@@ -91,10 +145,28 @@ export function SendStealthPaymentTab() {
 
                     {step === "fetched" && (
                         <div className="flex flex-col gap-4 rounded-md border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/50">
-                            <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
-                                ✓ Meta address successfully found on registry!
-                                {metaAddress}
-                            </p>
+                            <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">✓ Meta address found on registry</p>
+                            {metaAddress ? (
+                                <div className="space-y-3 rounded-md border border-emerald-300/50 bg-emerald-50/40 p-3 dark:border-emerald-700/40 dark:bg-emerald-950/20">
+                                    <div className="text-xs text-zinc-600 dark:text-zinc-300">Scheme ID: <span className="font-mono">{metaAddress.schemeId}</span></div>
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        <div className="rounded border bg-white p-2 dark:bg-zinc-950">
+                                            <div className="mb-1 text-xs font-medium">Spending Key</div>
+                                            <pre className="overflow-x-auto text-xs">
+{`x: ${metaAddress.spendingKey.x}
+y: ${metaAddress.spendingKey.y}`}
+                                            </pre>
+                                        </div>
+                                        <div className="rounded border bg-white p-2 dark:bg-zinc-950">
+                                            <div className="mb-1 text-xs font-medium">Viewing Key</div>
+                                            <pre className="overflow-x-auto text-xs">
+{`x: ${metaAddress.viewingKey.x}
+y: ${metaAddress.viewingKey.y}`}
+                                            </pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : null}
                             <Button onClick={handleGenerate} variant="secondary" className="w-fit">
                                 Generate Stealth Address
                             </Button>
@@ -106,7 +178,7 @@ export function SendStealthPaymentTab() {
                             <div className="flex flex-col gap-1">
                                 <span className="text-xs text-zinc-500">Generated Stealth Destination:</span>
                                 <span className="font-mono text-sm text-zinc-900 dark:text-zinc-50">
-                                    {stealthAddress}
+                                    {stealthAddress?.stealthAddress ?? ""}
                                 </span>
                             </div>
 
