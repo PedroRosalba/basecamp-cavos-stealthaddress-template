@@ -9,12 +9,29 @@ import { Label } from '@/components/ui/label';
 import { useState } from 'react';
 import { RpcProvider } from 'starknet';
 
+const STRK_DECIMALS = BigInt('1000000000000000000');
+const U128_MASK = (BigInt(1) << BigInt(128)) - BigInt(1);
+
+function parseStrkToWei(value: string): bigint {
+    const trimmed = value.trim();
+    if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+        throw new Error('Invalid STRK amount');
+    }
+
+    const [wholePart, fractionPart = ''] = trimmed.split('.');
+    const normalizedFraction = (fractionPart + '0'.repeat(18)).slice(0, 18);
+    const whole = BigInt(wholePart || '0') * STRK_DECIMALS;
+    const fraction = BigInt(normalizedFraction || '0');
+    return whole + fraction;
+}
+
 export function ConnectedWallet() {
     const { user, address, execute, walletStatus } = useCavos();
 
     const [recipientAddress, setRecipientAddress] = useState('');
     const [amount, setAmount] = useState('');
     const [balance, setBalance] = useState<string | null>(null);
+    const [lastTxHash, setLastTxHash] = useState<string | null>(null);
     const [isLoadingBalance, setIsLoadingBalance] = useState(false);
     const [balanceError, setBalanceError] = useState<string | null>(null);
 
@@ -64,12 +81,17 @@ export function ConnectedWallet() {
         }
 
         try {
+            const amountWei = parseStrkToWei(amount);
+            const amountLow = (amountWei & U128_MASK).toString();
+            const amountHigh = (amountWei >> BigInt(128)).toString();
+
             const txHash = await execute({
-                contractAddress: '0x049D36570D4e46f48e99674bd3fcc84644DdD6b96F7C741B1562B82f9e004dC7', // ETH Token Address
+                contractAddress: STRK_TOKEN_ADDRESS,
                 entrypoint: 'transfer',
-                calldata: [recipientAddress, amount, '0'], // recipient, amount_low, amount_high
+                calldata: [recipientAddress, amountLow, amountHigh],
             });
 
+            setLastTxHash(txHash);
             console.log('Transaction hash:', txHash);
             alert(`Example TX sent! Hash: ${txHash}`);
         } catch (error) {
@@ -110,10 +132,10 @@ export function ConnectedWallet() {
                             />
                         </div>
                         <div className="flex flex-col gap-2">
-                            <Label htmlFor="amount">Amount (wei)</Label>
+                            <Label htmlFor="amount">Amount (STRK)</Label>
                             <Input
                                 id="amount"
-                                placeholder="1000"
+                                placeholder="0.01"
                                 value={amount}
                                 onChange={(e) => setAmount(e.target.value)}
                             />
@@ -121,6 +143,16 @@ export function ConnectedWallet() {
                         <Button onClick={handleSend} className="mt-2 w-full" disabled={!walletStatus.isReady || !recipientAddress || !amount}>
                             Execute Transaction
                         </Button>
+                        {lastTxHash ? (
+                            <a
+                                href={`https://sepolia.voyager.online/tx/${lastTxHash}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="break-all text-xs text-blue-600 underline"
+                            >
+                                View tx: {lastTxHash}
+                            </a>
+                        ) : null}
                     </div>
                 </DropdownMenuContent>
             </DropdownMenu>
