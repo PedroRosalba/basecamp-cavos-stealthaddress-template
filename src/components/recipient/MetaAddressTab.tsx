@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { computeStealthContractAddress, createMetaAddress, encodeMetaAddress, generatePrivateKey } from "../../../starknet-stealth-addresses/sdk/src/stealth";
 import { SEPOLIA_CONFIG } from "@/constants";
-import { RpcProvider, Contract } from "starknet";
+import { useCavos } from "@cavos/react";
 import { STEALTH_REGISTRY_ABI } from "@/abi/registry";
 
 type EncodedKeys = {
@@ -17,16 +17,12 @@ type EncodedKeys = {
 };
 
 export function MetaAddressTab() {
+    const { execute, walletStatus } = useCavos();
     const [spendingPrivKey, setSpendingPrivKey] = useState<bigint>(0n);
     const [viewingPrivKey, setViewingPrivKey] = useState<bigint>(0n);
     const [keysGenerated, setKeysGenerated] = useState(false);
     const [accountAddress, setAccountAddress] = useState<string>("");
     const [keys, setKeys] = useState<EncodedKeys | null>(null);
-    const registry = new Contract({
-        abi: STEALTH_REGISTRY_ABI,
-        address: SEPOLIA_CONFIG.registryAddress,
-        providerOrAccount: new RpcProvider({ nodeUrl: SEPOLIA_CONFIG.rpcUrl }),
-    });
     const generateKeys = () => {
         const spendingPrivKey = generatePrivateKey();
         setSpendingPrivKey(spendingPrivKey);
@@ -60,15 +56,19 @@ export function MetaAddressTab() {
     };
 
     const registerKeys = async () => {
-        if (!keys) return;
+        if (!keys || !walletStatus.isReady) return;
 
-        await registry.register_stealth_meta_address(
-            keys.spendingX,
-            keys.spendingY,
-            keys.viewingX,
-            keys.viewingY,
-            keys.schemeId
-        );
+        await execute({
+            contractAddress: SEPOLIA_CONFIG.registryAddress,
+            entrypoint: "register_stealth_meta_address",
+            calldata: [
+                keys.spendingX,
+                keys.spendingY,
+                keys.viewingX,
+                keys.viewingY,
+                keys.schemeId,
+            ],
+        });
         console.log("Registered keys: ", keys);
     };
 
