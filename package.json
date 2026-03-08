@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@cavos/react": "^1.1.5",
+    "@starknet-stealth/sdk": "file:starknet-stealth-addresses/sdk",
     "@web3icons/react": "^4.1.17",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
