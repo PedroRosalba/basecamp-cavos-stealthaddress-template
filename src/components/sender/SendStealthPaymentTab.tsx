@@ -185,38 +185,60 @@ export function SendStealthPaymentTab() {
   const handleFetchMeta = async () => {
     if (!recipientAddress) return;
 
-    const result = await provider.callContract({
-      contractAddress: SEPOLIA_CONFIG.registryAddress,
-      entrypoint: "get_stealth_meta_address",
-      calldata: [recipientAddress],
-    });
+    try {
+      const result = await provider.callContract({
+        contractAddress: SEPOLIA_CONFIG.registryAddress,
+        entrypoint: "get_stealth_meta_address",
+        calldata: [recipientAddress],
+      });
 
-    const schemeId = Number(result[0] ?? "0");
-    const spendingX = result[1] ?? "0";
-    const spendingY = result[2] ?? "0";
-    const viewingX = result[3] ?? "0";
-    const viewingY = result[4] ?? "0";
+      const schemeId = Number(result[0] ?? "0");
+      const spendingX = result[1] ?? "0";
+      const spendingY = result[2] ?? "0";
+      const viewingX = result[3] ?? "0";
+      const viewingY = result[4] ?? "0";
 
-    const decoded = decodeMetaAddress(
-      spendingX,
-      spendingY,
-      viewingX,
-      viewingY,
-      schemeId,
-    );
-    setMetaAddress({
-      schemeId: decoded.schemeId,
-      spendingKey: {
-        x: decoded.spendingKey.x.toString(),
-        y: decoded.spendingKey.y.toString(),
-      },
-      viewingKey: {
-        x: decoded.viewingKey.x.toString(),
-        y: decoded.viewingKey.y.toString(),
-      },
-    });
-    resetExecutionState();
-    setStep("fetched");
+      const hasMeta =
+        BigInt(spendingX) !== 0n ||
+        BigInt(spendingY) !== 0n ||
+        BigInt(viewingX) !== 0n ||
+        BigInt(viewingY) !== 0n;
+
+      if (!hasMeta) {
+        throw new Error(
+          "Recipient has no registered meta-address. Ask recipient to sync keys on-chain first.",
+        );
+      }
+
+      const decoded = decodeMetaAddress(
+        spendingX,
+        spendingY,
+        viewingX,
+        viewingY,
+        schemeId,
+      );
+      setMetaAddress({
+        schemeId: decoded.schemeId,
+        spendingKey: {
+          x: decoded.spendingKey.x.toString(),
+          y: decoded.spendingKey.y.toString(),
+        },
+        viewingKey: {
+          x: decoded.viewingKey.x.toString(),
+          y: decoded.viewingKey.y.toString(),
+        },
+      });
+      resetExecutionState();
+      setIsStatusError(false);
+      setStatusMessage("Meta-address fetched from registry.");
+      setStep("fetched");
+    } catch (error) {
+      setMetaAddress(null);
+      setStealthAddress(null);
+      setStep("initial");
+      setIsStatusError(true);
+      setStatusMessage(`Meta lookup failed: ${getErrorMessage(error)}`);
+    }
   };
 
   const handleGenerate = () => {

@@ -18,7 +18,10 @@ import { getPublicKey } from "../../../starknet-stealth-addresses/sdk/src/stealt
 import type { ScanResult } from "../../../starknet-stealth-addresses/sdk/src/types";
 import { SEPOLIA_CONFIG } from "@/constants";
 import { STEALTH_REGISTRY_ABI } from "@/abi/registry";
-import type { GeneratedRecipientKeys } from "./MetaAddressTab";
+import type {
+  GeneratedRecipientKeys,
+  RecipientKeySyncState,
+} from "./MetaAddressTab";
 
 type ScanStatus = "idle" | "scanning" | "error" | "success";
 
@@ -38,9 +41,13 @@ const INITIAL_STATS: ScannerStats = {
 
 export interface ScanAndClaimTabProps {
   generatedKeys?: GeneratedRecipientKeys | null;
+  syncState?: RecipientKeySyncState;
 }
 
-export function ScanAndClaimTab({ generatedKeys }: ScanAndClaimTabProps) {
+export function ScanAndClaimTab({
+  generatedKeys,
+  syncState,
+}: ScanAndClaimTabProps) {
   const { address } = useCavos();
   const [spendingPrivateKey, setSpendingPrivateKey] = useState("");
   const [viewingPrivateKey, setViewingPrivateKey] = useState("");
@@ -186,6 +193,15 @@ export function ScanAndClaimTab({ generatedKeys }: ScanAndClaimTabProps) {
   };
 
   const handleScan = async () => {
+    if (syncState?.status !== "synced") {
+      setStatus("error");
+      setErrorMessage(
+        syncState?.message ||
+          "Keys are not synced on-chain yet. Sync them in Meta-Address tab first.",
+      );
+      return;
+    }
+
     if (!isScannerReady) {
       setStatus("error");
       setErrorMessage("Scanner is still initializing. Try again in a second.");
@@ -235,6 +251,11 @@ export function ScanAndClaimTab({ generatedKeys }: ScanAndClaimTabProps) {
             Use your spending and viewing private keys to detect stealth
             payments sent to you.
           </CardDescription>
+          {syncState && syncState.status !== "synced" ? (
+            <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-300">
+              Scan locked: {syncState.message}
+            </div>
+          ) : null}
         </CardHeader>
       </Card>
 
@@ -351,7 +372,8 @@ export function ScanAndClaimTab({ generatedKeys }: ScanAndClaimTabProps) {
                 !spendingPrivateKey ||
                 !viewingPrivateKey ||
                 status === "scanning" ||
-                !isScannerReady
+                !isScannerReady ||
+                syncState?.status !== "synced"
               }
             >
               {status === "scanning" ? "Scanning..." : "Scan Announcements"}
