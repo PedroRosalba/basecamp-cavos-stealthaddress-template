@@ -45,7 +45,6 @@ export type RecipientKeySyncStatus =
   | "unsynced"
   | "syncing"
   | "synced"
-  | "mismatch"
   | "error";
 
 export interface RecipientKeySyncState {
@@ -62,6 +61,14 @@ const STORAGE_PREFIX = "stealth-recipient-keys";
 
 function buildStorageKey(address: string): string {
   return `${STORAGE_PREFIX}:${SEPOLIA_CONFIG.chainId}:${SEPOLIA_CONFIG.registryAddress.toLowerCase()}:${address.toLowerCase()}`;
+}
+
+function normalizeAddress(value: string): string {
+  try {
+    return `0x${BigInt(value).toString(16)}`.toLowerCase();
+  } catch {
+    return value.trim().toLowerCase();
+  }
 }
 
 function toEncodedKeys(
@@ -83,7 +90,7 @@ export function MetaAddressTab({
   onKeysGenerated,
   onSyncStateChange,
 }: MetaAddressTabProps) {
-  const { execute, walletStatus, registerCurrentSession, address } = useCavos();
+  const { cavos, execute, walletStatus, address } = useCavos();
 
   const [spendingPrivKey, setSpendingPrivKey] = useState<bigint | null>(null);
   const [viewingPrivKey, setViewingPrivKey] = useState<bigint | null>(null);
@@ -99,6 +106,7 @@ export function MetaAddressTab({
     () => new RpcProvider({ nodeUrl: SEPOLIA_CONFIG.rpcUrl }),
     [],
   );
+  const walletAddress = useMemo(() => cavos.getAddress() ?? address ?? null, [cavos, address]);
 
   const keysGenerated = Boolean(spendingPrivKey && viewingPrivKey && keys);
 
@@ -127,6 +135,20 @@ export function MetaAddressTab({
     setRegistrationLogs((prev) => [...prev, `[${timestamp}] ${message}`]);
   };
 
+  const formatError = (error: unknown) => {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    if (typeof error === "string") {
+      return error;
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  };
+
   const saveLocalKeys = useCallback(
     (nextSpendingPrivKey: bigint, nextViewingPrivKey: bigint, ownerAddress: string) => {
       if (typeof window === "undefined") {
@@ -148,65 +170,14 @@ export function MetaAddressTab({
   );
 
   const clearLocalKeys = useCallback(() => {
-    if (!address || typeof window === "undefined") {
+    if (!walletAddress || typeof window === "undefined") {
       return;
     }
-    window.localStorage.removeItem(buildStorageKey(address));
-  }, [address]);
-
-  const verifyKeysOnChain = useCallback(
-    async (currentKeys: EncodedKeys, ownerAddress: string): Promise<boolean> => {
-      const onchain = await provider.callContract({
-        contractAddress: SEPOLIA_CONFIG.registryAddress,
-        entrypoint: "get_stealth_meta_address",
-        calldata: [ownerAddress],
-      });
-
-      return (
-        String(onchain[1] ?? "0") === currentKeys.spendingX &&
-        String(onchain[2] ?? "0") === currentKeys.spendingY &&
-        String(onchain[3] ?? "0") === currentKeys.viewingX &&
-        String(onchain[4] ?? "0") === currentKeys.viewingY &&
-        String(onchain[0] ?? "0") === currentKeys.schemeId
-      );
-    },
-    [provider],
-  );
-
-  const checkOnChainSyncStatus = useCallback(
-    async (currentKeys: EncodedKeys, ownerAddress: string) => {
-      try {
-        const matches = await verifyKeysOnChain(currentKeys, ownerAddress);
-        if (matches) {
-          updateSyncState({
-            status: "synced",
-            message: "Keys synced and verified against on-chain meta-address.",
-          });
-          appendRegistrationLog("On-chain verification successful.");
-          return;
-        }
-
-        updateSyncState({
-          status: "mismatch",
-          message:
-            "On-chain keys differ from local keys. Sync keys on-chain before scanning.",
-        });
-        appendRegistrationLog("Detected local/on-chain key mismatch.");
-      } catch (error) {
-        updateSyncState({
-          status: "error",
-          message:
-            error instanceof Error
-              ? `Unable to verify on-chain keys: ${error.message}`
-              : "Unable to verify on-chain keys.",
-        });
-      }
-    },
-    [updateSyncState, verifyKeysOnChain],
-  );
+    window.localStorage.removeItem(buildStorageKey(walletAddress));
+  }, [walletAddress]);
 
   useEffect(() => {
-    if (!address) {
+    if (!walletAddress) {
       updateSyncState({
         status: "idle",
         message: "Connect wallet to manage recipient keys.",
@@ -223,7 +194,7 @@ export function MetaAddressTab({
       return;
     }
 
-    const raw = window.localStorage.getItem(buildStorageKey(address));
+    const raw = window.localStorage.getItem(buildStorageKey(walletAddress));
     if (!raw) {
       updateSyncState({
         status: "unsynced",
@@ -250,10 +221,7 @@ export function MetaAddressTab({
       ]);
       updateSyncState({
         status: "unsynced",
-        message: "Local keys loaded. Verifying against on-chain meta-address...",
-      });
-      checkOnChainSyncStatus(restoredKeys, address).catch(() => {
-        // handled in checkOnChainSyncStatus
+        message: "Local keys loaded. Register or update them on-chain.",
       });
     } catch {
       updateSyncState({
@@ -264,10 +232,10 @@ export function MetaAddressTab({
       setViewingPrivKey(null);
       setKeys(null);
     }
-  }, [address, checkOnChainSyncStatus, updateSyncState]);
+  }, [walletAddress, updateSyncState]);
 
   const generateKeys = () => {
-    if (!address) {
+    if (!walletAddress) {
       updateSyncState({
         status: "error",
         message: "Connect wallet before generating keys.",
@@ -284,10 +252,10 @@ export function MetaAddressTab({
     setKeys(encodedKeys);
     setRegistrationLogs([]);
     setLastTxHash("");
-    saveLocalKeys(nextSpendingPrivKey, nextViewingPrivKey, address);
+    saveLocalKeys(nextSpendingPrivKey, nextViewingPrivKey, walletAddress);
     updateSyncState({
       status: "unsynced",
-      message: "New local keys generated. Sync them on-chain before scanning.",
+      message: "New local keys generated. Register them on-chain before scanning.",
     });
   };
 
@@ -300,12 +268,18 @@ export function MetaAddressTab({
     setLastTxHash("");
     updateSyncState({
       status: "unsynced",
-      message: "Local keys removed. Generate and sync fresh keys.",
+      message: "Local keys removed. Generate and register fresh keys.",
     });
   };
 
   const registerKeys = async () => {
-    if (!keys || !spendingPrivKey || !viewingPrivKey || !walletStatus.isReady || !address) {
+    if (
+      !keys ||
+      !spendingPrivKey ||
+      !viewingPrivKey ||
+      !walletStatus.isReady ||
+      !walletAddress
+    ) {
       updateSyncState({
         status: "error",
         message: "Wallet not ready or local keys missing.",
@@ -323,138 +297,184 @@ export function MetaAddressTab({
 
     updateSyncState({
       status: "syncing",
-      message: "Syncing keys on-chain...",
+      message: "Registering keys on-chain...",
     });
     setRegistrationLogs([]);
     setLastTxHash("");
-    appendRegistrationLog("Starting key sync to registry.");
 
-    const needsSessionRecovery = (message: string) =>
-      message.includes("Paymaster RPC error [156]") ||
-      message.toLowerCase().includes("contract not found") ||
-      message.includes("get_session");
-
-    const executeWithSessionRecovery = async (entrypoint: string) => {
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        try {
-          const isRetry = attempt > 0;
-          appendRegistrationLog(
-            `${isRetry ? "Retrying" : "Submitting"} ${entrypoint} transaction.`,
-          );
-          const txHash = await execute({
-            contractAddress: SEPOLIA_CONFIG.registryAddress,
-            entrypoint,
-            calldata,
-          });
-          appendRegistrationLog(`Transaction submitted: ${shortenHash(String(txHash))}.`);
-          return String(txHash);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          if (!needsSessionRecovery(message) || attempt === 2) {
-            throw error;
-          }
-
-          appendRegistrationLog(
-            "Session issue detected. Registering current session before retry.",
-          );
-          const sessionTxHash = await registerCurrentSession();
-          appendRegistrationLog(
-            `Session registration submitted: ${shortenHash(String(sessionTxHash))}. Waiting confirmation...`,
-          );
-          await provider.waitForTransaction(String(sessionTxHash));
-          appendRegistrationLog("Session registration confirmed.");
-          await new Promise((resolve) => setTimeout(resolve, 1200));
-        }
-      }
-
-      throw new Error("Unable to execute registry write after session recovery.");
-    };
-
-    const hasMetaAddressOnChain = async (ownerAddress: string): Promise<boolean> => {
-      const result = await provider.callContract({
-        contractAddress: SEPOLIA_CONFIG.registryAddress,
-        entrypoint: "has_meta_address",
-        calldata: [ownerAddress],
+    const contextAddress = address;
+    const cavosAddress = cavos.getAddress();
+    const signerAddress = cavosAddress ?? contextAddress;
+    if (!signerAddress) {
+      updateSyncState({
+        status: "error",
+        message: "Missing signer address. Reconnect wallet and try again.",
       });
-      return BigInt(result[0] ?? "0") !== 0n;
-    };
+      return;
+    }
+
+    const normalizedContextAddress = contextAddress
+      ? normalizeAddress(contextAddress)
+      : null;
+    const normalizedCavosAddress = cavosAddress ? normalizeAddress(cavosAddress) : null;
+    const normalizedSignerAddress = normalizeAddress(signerAddress);
+
+    console.group("[MetaAddressTab][register] Starting write flow");
+    console.log("[MetaAddressTab][register] useCavos address:", contextAddress);
+    console.log("[MetaAddressTab][register] cavos.getAddress():", cavosAddress);
+    console.log("[MetaAddressTab][register] normalized useCavos address:", normalizedContextAddress);
+    console.log("[MetaAddressTab][register] normalized cavos address:", normalizedCavosAddress);
+    console.log("[MetaAddressTab][register] signer address:", signerAddress);
+    console.log(
+      "[MetaAddressTab][register] normalized signer address:",
+      normalizedSignerAddress,
+    );
+    console.log("[MetaAddressTab][register] registry address:", SEPOLIA_CONFIG.registryAddress);
+    console.log("[MetaAddressTab][register] configured chain id:", String(SEPOLIA_CONFIG.chainId));
+    console.log("[MetaAddressTab][register] rpc url:", SEPOLIA_CONFIG.rpcUrl);
+    console.log("[MetaAddressTab][register] calldata:", calldata);
+    if (
+      normalizedContextAddress &&
+      normalizedCavosAddress &&
+      normalizedContextAddress !== normalizedCavosAddress
+    ) {
+      const mismatchMessage =
+        "Address mismatch detected between useCavos.address and cavos.getAddress(). Aborting write.";
+      console.error("[MetaAddressTab][register]", mismatchMessage);
+      appendRegistrationLog(mismatchMessage);
+      updateSyncState({
+        status: "error",
+        message: mismatchMessage,
+      });
+      console.groupEnd();
+      return;
+    }
+    appendRegistrationLog("Checking current on-chain registration status.");
 
     try {
-      const hasMetaBeforeWrite = await hasMetaAddressOnChain(address);
-      const primaryEntrypoint = hasMetaBeforeWrite
-        ? "update_stealth_meta_address"
-        : "register_stealth_meta_address";
-      const secondaryEntrypoint =
-        primaryEntrypoint === "register_stealth_meta_address"
-          ? "update_stealth_meta_address"
-          : "register_stealth_meta_address";
-      appendRegistrationLog(
-        hasMetaBeforeWrite
-          ? "Meta-address exists on-chain. Using update entrypoint."
-          : "Meta-address not found on-chain. Using register entrypoint.",
-      );
+      const hasResult = await provider.callContract({
+        contractAddress: SEPOLIA_CONFIG.registryAddress,
+        entrypoint: "has_meta_address",
+        calldata: [signerAddress],
+      });
+      const hasMeta = BigInt(hasResult[0] ?? "0") !== 0n;
+      console.log("[MetaAddressTab][register] has_meta_address raw:", hasResult);
+      console.log("[MetaAddressTab][register] has_meta_address parsed:", hasMeta);
 
-      let txHash = "";
-      try {
-        txHash = await executeWithSessionRecovery(primaryEntrypoint);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+      let txHash: string;
+      if (hasMeta) {
         appendRegistrationLog(
-          `Primary entrypoint failed (${message}). Retrying with ${secondaryEntrypoint}.`,
+          `Meta-address exists for ${signerAddress.slice(0, 10)}... Updating.`,
         );
-        txHash = await executeWithSessionRecovery(secondaryEntrypoint);
+        try {
+          console.log(
+            "[MetaAddressTab][register] executing entrypoint:",
+            "update_stealth_meta_address",
+          );
+          txHash = String(
+            await execute({
+              contractAddress: SEPOLIA_CONFIG.registryAddress,
+              entrypoint: "update_stealth_meta_address",
+              calldata,
+            }),
+          );
+          console.log("[MetaAddressTab][register] update tx hash:", txHash);
+          appendRegistrationLog(
+            `update_stealth_meta_address submitted: ${shortenHash(txHash)}. Waiting confirmation.`,
+          );
+        } catch (error) {
+          const updateErrorMessage = formatError(error);
+          console.error("[MetaAddressTab][register] update failed:", updateErrorMessage);
+          appendRegistrationLog(`Update failed: ${updateErrorMessage}`);
+          throw error;
+        }
+      } else {
+        appendRegistrationLog(
+          `No meta-address found for ${signerAddress.slice(0, 10)}... Registering.`,
+        );
+        try {
+          console.log(
+            "[MetaAddressTab][register] executing entrypoint:",
+            "register_stealth_meta_address",
+          );
+          txHash = String(
+            await execute({
+              contractAddress: SEPOLIA_CONFIG.registryAddress,
+              entrypoint: "register_stealth_meta_address",
+              calldata,
+            }),
+          );
+          console.log("[MetaAddressTab][register] register tx hash:", txHash);
+          appendRegistrationLog(
+            `register_stealth_meta_address submitted: ${shortenHash(txHash)}. Waiting confirmation.`,
+          );
+        } catch (error) {
+          const registerErrorMessage = formatError(error);
+          console.error("[MetaAddressTab][register] register failed:", registerErrorMessage);
+          const shouldFallbackToUpdate = registerErrorMessage
+            .toLowerCase()
+            .includes("already registered");
+          if (!shouldFallbackToUpdate) {
+            appendRegistrationLog(`Register failed: ${registerErrorMessage}`);
+            throw error;
+          }
+          appendRegistrationLog(
+            "Register returned already-registered. Retrying with update_stealth_meta_address.",
+          );
+          try {
+            console.log(
+              "[MetaAddressTab][register] executing entrypoint:",
+              "update_stealth_meta_address",
+            );
+            txHash = String(
+              await execute({
+                contractAddress: SEPOLIA_CONFIG.registryAddress,
+                entrypoint: "update_stealth_meta_address",
+                calldata,
+              }),
+            );
+            console.log(
+              "[MetaAddressTab][register] update tx hash (after register fallback):",
+              txHash,
+            );
+            appendRegistrationLog(
+              `update_stealth_meta_address submitted: ${shortenHash(txHash)}. Waiting confirmation.`,
+            );
+          } catch (updateError) {
+            const updateErrorMessage = formatError(updateError);
+            console.error(
+              "[MetaAddressTab][register] update failed after register fallback:",
+              updateErrorMessage,
+            );
+            appendRegistrationLog(`Update failed: ${updateErrorMessage}`);
+            throw updateError;
+          }
+        }
       }
 
       setLastTxHash(txHash);
-      appendRegistrationLog("Waiting for transaction confirmation.");
+      console.log("[MetaAddressTab][register] waiting for confirmation:", txHash);
       await provider.waitForTransaction(txHash);
+      console.log("[MetaAddressTab][register] transaction confirmed:", txHash);
       appendRegistrationLog("Transaction confirmed.");
-
-      appendRegistrationLog("Verifying on-chain keys against local keys.");
-      const matches = await verifyKeysOnChain(keys, address);
-      if (!matches) {
-        updateSyncState({
-          status: "mismatch",
-          message:
-            "Transaction confirmed but on-chain keys still differ from local keys.",
-        });
-        appendRegistrationLog("Verification failed: local/on-chain mismatch remains.");
-        return;
-      }
-
-      saveLocalKeys(spendingPrivKey, viewingPrivKey, address);
+      saveLocalKeys(spendingPrivKey, viewingPrivKey, signerAddress);
       updateSyncState({
         status: "synced",
-        message: "Keys synced and verified on-chain.",
+        message: "Keys registered on-chain.",
       });
-      appendRegistrationLog("Verification successful. Keys synced on-chain.");
+      appendRegistrationLog("Done.");
+      console.groupEnd();
     } catch (error) {
-      try {
-        appendRegistrationLog(
-          "Write flow failed. Checking if keys were already synced on-chain.",
-        );
-        const matches = await verifyKeysOnChain(keys, address);
-        if (matches) {
-          saveLocalKeys(spendingPrivKey, viewingPrivKey, address);
-          updateSyncState({
-            status: "synced",
-            message: "Keys already synced on-chain.",
-          });
-          appendRegistrationLog("Verification successful. Keys were already synced.");
-          return;
-        }
-      } catch {
-        // Ignore follow-up verification errors and surface the write failure.
-      }
-
-      appendRegistrationLog("Unable to sync keys on-chain.");
+      console.error("[MetaAddressTab][register] flow failed:", formatError(error));
+      appendRegistrationLog("Registration flow failed.");
       updateSyncState({
         status: "error",
         message:
           error instanceof Error
-            ? `Failed to sync keys on-chain: ${error.message}`
-            : "Failed to sync keys on-chain.",
+            ? `Failed to register keys on-chain: ${error.message}`
+            : "Failed to register keys on-chain.",
       });
+      console.groupEnd();
     }
   };
 
@@ -464,8 +484,8 @@ export function MetaAddressTab({
         <CardHeader>
           <CardTitle>Generate your keys and register them on-chain</CardTitle>
           <CardDescription>
-            Mirror demo flow: generate local keys, then register/update and verify
-            on-chain meta-address.
+            Generate local keys, register them on-chain, and fallback to update if
+            already registered.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
@@ -512,7 +532,7 @@ export function MetaAddressTab({
                   Registry Lookup Address (share this with sender)
                 </h4>
                 <div className="break-all rounded bg-zinc-100 px-3 py-2 font-mono text-xs dark:bg-zinc-900">
-                  {address ?? "Connect wallet to show address"}
+                  {walletAddress ?? "Connect wallet to show address"}
                 </div>
                 <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
                   Sender fetches this address from registry to generate stealth
@@ -539,8 +559,8 @@ export function MetaAddressTab({
                 </Button>
                 <Button onClick={registerKeys} disabled={!keys || syncState.status === "syncing"}>
                   {syncState.status === "syncing"
-                    ? "Syncing..."
-                    : "Sync Keys On-Chain"}
+                    ? "Registering..."
+                    : "Register Keys On-Chain"}
                 </Button>
               </div>
 

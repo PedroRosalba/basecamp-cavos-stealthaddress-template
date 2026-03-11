@@ -14,14 +14,14 @@ import { Button } from "@/components/ui/button";
 import { useCavos } from "@cavos/react";
 import { RpcProvider } from "starknet";
 import { StealthScanner } from "../../../starknet-stealth-addresses/sdk/src/scanner";
-import { getPublicKey } from "../../../starknet-stealth-addresses/sdk/src/stealth";
+import {
+  createMetaAddress,
+  encodeMetaAddress,
+  getPublicKey,
+} from "../../../starknet-stealth-addresses/sdk/src/stealth";
 import type { ScanResult } from "../../../starknet-stealth-addresses/sdk/src/types";
 import { SEPOLIA_CONFIG } from "@/constants";
 import { STEALTH_REGISTRY_ABI } from "@/abi/registry";
-import type {
-  GeneratedRecipientKeys,
-  RecipientKeySyncState,
-} from "./MetaAddressTab";
 
 type ScanStatus = "idle" | "scanning" | "error" | "success";
 
@@ -39,19 +39,10 @@ const INITIAL_STATS: ScannerStats = {
   scanTimeMs: 0,
 };
 
-export interface ScanAndClaimTabProps {
-  generatedKeys?: GeneratedRecipientKeys | null;
-  syncState?: RecipientKeySyncState;
-}
-
-export function ScanAndClaimTab({
-  generatedKeys,
-  syncState,
-}: ScanAndClaimTabProps) {
+export function ScanAndClaimTab() {
   const { address } = useCavos();
   const [spendingPrivateKey, setSpendingPrivateKey] = useState("");
   const [viewingPrivateKey, setViewingPrivateKey] = useState("");
-  const [scanAddress, setScanAddress] = useState("");
   const [fromBlock, setFromBlock] = useState("");
   const [status, setStatus] = useState<ScanStatus>("idle");
   const [errorMessage, setErrorMessage] = useState("");
@@ -106,29 +97,32 @@ export function ScanAndClaimTab({
     };
   }, [scanner]);
 
-  useEffect(() => {
-    if (!generatedKeys) {
-      return;
+  const derivedMetaAddress = useMemo(() => {
+    if (!spendingPrivateKey || !viewingPrivateKey) {
+      return null;
     }
-
-    setSpendingPrivateKey(generatedKeys.spendingPrivKey.toString());
-    setViewingPrivateKey(generatedKeys.viewingPrivKey.toString());
-    setStatus("idle");
-    setErrorMessage("");
-  }, [generatedKeys]);
-
-  useEffect(() => {
-    if (!address) {
-      return;
+    try {
+      const spendingPrivKey = BigInt(spendingPrivateKey);
+      const viewingPrivKey = BigInt(viewingPrivateKey);
+      const metaAddress = createMetaAddress(spendingPrivKey, viewingPrivKey);
+      const encoded = encodeMetaAddress(metaAddress);
+      return {
+        schemeId: encoded.schemeId.toString(),
+        spendingX: encoded.spendingX,
+        spendingY: encoded.spendingY,
+        viewingX: encoded.viewingX,
+        viewingY: encoded.viewingY,
+      };
+    } catch {
+      return null;
     }
-    setScanAddress(address);
-  }, [address]);
+  }, [spendingPrivateKey, viewingPrivateKey]);
 
   const handleValidateKeys = async () => {
-    if (!spendingPrivateKey || !viewingPrivateKey || !scanAddress) {
+    if (!spendingPrivateKey || !viewingPrivateKey || !address) {
       setValidationError(true);
       setValidationMessage(
-        "Enter recipient address plus spending/viewing private keys first.",
+        "Connect your wallet and enter spending/viewing private keys first.",
       );
       return;
     }
@@ -145,7 +139,7 @@ export function ScanAndClaimTab({
       const result = await validationProvider.callContract({
         contractAddress: SEPOLIA_CONFIG.registryAddress,
         entrypoint: "get_stealth_meta_address",
-        calldata: [scanAddress],
+        calldata: [address],
       });
 
       const spendingX = BigInt(result[1] ?? "0");
@@ -193,15 +187,6 @@ export function ScanAndClaimTab({
   };
 
   const handleScan = async () => {
-    if (syncState?.status !== "synced") {
-      setStatus("error");
-      setErrorMessage(
-        syncState?.message ||
-          "Keys are not synced on-chain yet. Sync them in Meta-Address tab first.",
-      );
-      return;
-    }
-
     if (!isScannerReady) {
       setStatus("error");
       setErrorMessage("Scanner is still initializing. Try again in a second.");
@@ -251,11 +236,6 @@ export function ScanAndClaimTab({
             Use your spending and viewing private keys to detect stealth
             payments sent to you.
           </CardDescription>
-          {syncState && syncState.status !== "synced" ? (
-            <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-300">
-              Scan locked: {syncState.message}
-            </div>
-          ) : null}
         </CardHeader>
       </Card>
 
@@ -268,24 +248,11 @@ export function ScanAndClaimTab({
             Enter Your Keys
           </CardTitle>
           <CardDescription>
-            Keys generated in Meta-Address are auto-filled here.
+            Keys generated in Meta-Address are auto-filled here. The meta-address
+            preview below is computed from these private keys.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="scanAddress">Recipient Address (On-Chain Meta)</Label>
-            <Input
-              id="scanAddress"
-              placeholder="0x..."
-              value={scanAddress}
-              onChange={(e) => {
-                setScanAddress(e.target.value);
-                setValidationMessage("");
-                setValidationError(false);
-              }}
-            />
-          </div>
-
           <div className="flex flex-col gap-2">
             <Label htmlFor="spendingPrivateKey">Spending Private Key</Label>
             <Input
@@ -301,6 +268,19 @@ export function ScanAndClaimTab({
                 setValidationError(false);
               }}
             />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label>Derived Meta-Address (from inserted private keys)</Label>
+            <div className="rounded-md bg-zinc-950 p-4">
+              <pre className="overflow-x-auto text-sm text-zinc-50">
+                <code>
+                  {derivedMetaAddress
+                    ? JSON.stringify(derivedMetaAddress, null, 2)
+                    : "Enter valid spending/viewing private keys to derive meta-address."}
+                </code>
+              </pre>
+            </div>
           </div>
 
           <div className="flex flex-col gap-2">
@@ -342,7 +322,7 @@ export function ScanAndClaimTab({
               variant="outline"
               className="w-fit"
               disabled={
-                !scanAddress ||
+                !address ||
                 !spendingPrivateKey ||
                 !viewingPrivateKey ||
                 isValidatingKeys
@@ -372,8 +352,7 @@ export function ScanAndClaimTab({
                 !spendingPrivateKey ||
                 !viewingPrivateKey ||
                 status === "scanning" ||
-                !isScannerReady ||
-                syncState?.status !== "synced"
+                !isScannerReady
               }
             >
               {status === "scanning" ? "Scanning..." : "Scan Announcements"}
