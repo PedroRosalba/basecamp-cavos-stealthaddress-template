@@ -106,7 +106,10 @@ export function MetaAddressTab({
     () => new RpcProvider({ nodeUrl: SEPOLIA_CONFIG.rpcUrl }),
     [],
   );
-  const walletAddress = useMemo(() => cavos.getAddress() ?? address ?? null, [cavos, address]);
+  const walletAddress = useMemo(
+    () => cavos.getAddress() ?? address ?? null,
+    [cavos, address],
+  );
 
   const keysGenerated = Boolean(spendingPrivKey && viewingPrivKey && keys);
 
@@ -150,7 +153,11 @@ export function MetaAddressTab({
   };
 
   const saveLocalKeys = useCallback(
-    (nextSpendingPrivKey: bigint, nextViewingPrivKey: bigint, ownerAddress: string) => {
+    (
+      nextSpendingPrivKey: bigint,
+      nextViewingPrivKey: bigint,
+      ownerAddress: string,
+    ) => {
       if (typeof window === "undefined") {
         return;
       }
@@ -164,7 +171,10 @@ export function MetaAddressTab({
         updatedAt: new Date().toISOString(),
       };
 
-      window.localStorage.setItem(buildStorageKey(ownerAddress), JSON.stringify(payload));
+      window.localStorage.setItem(
+        buildStorageKey(ownerAddress),
+        JSON.stringify(payload),
+      );
     },
     [],
   );
@@ -210,7 +220,10 @@ export function MetaAddressTab({
       const parsed = JSON.parse(raw) as StoredRecipientKeys;
       const restoredSpendingPriv = BigInt(parsed.spendingPrivKey);
       const restoredViewingPriv = BigInt(parsed.viewingPrivKey);
-      const restoredKeys = toEncodedKeys(restoredSpendingPriv, restoredViewingPriv);
+      const restoredKeys = toEncodedKeys(
+        restoredSpendingPriv,
+        restoredViewingPriv,
+      );
 
       setSpendingPrivKey(restoredSpendingPriv);
       setViewingPrivKey(restoredViewingPriv);
@@ -255,7 +268,8 @@ export function MetaAddressTab({
     saveLocalKeys(nextSpendingPrivKey, nextViewingPrivKey, walletAddress);
     updateSyncState({
       status: "unsynced",
-      message: "New local keys generated. Register them on-chain before scanning.",
+      message:
+        "New local keys generated. Register them on-chain before scanning.",
     });
   };
 
@@ -316,21 +330,35 @@ export function MetaAddressTab({
     const normalizedContextAddress = contextAddress
       ? normalizeAddress(contextAddress)
       : null;
-    const normalizedCavosAddress = cavosAddress ? normalizeAddress(cavosAddress) : null;
+    const normalizedCavosAddress = cavosAddress
+      ? normalizeAddress(cavosAddress)
+      : null;
     const normalizedSignerAddress = normalizeAddress(signerAddress);
 
     console.group("[MetaAddressTab][register] Starting write flow");
     console.log("[MetaAddressTab][register] useCavos address:", contextAddress);
     console.log("[MetaAddressTab][register] cavos.getAddress():", cavosAddress);
-    console.log("[MetaAddressTab][register] normalized useCavos address:", normalizedContextAddress);
-    console.log("[MetaAddressTab][register] normalized cavos address:", normalizedCavosAddress);
+    console.log(
+      "[MetaAddressTab][register] normalized useCavos address:",
+      normalizedContextAddress,
+    );
+    console.log(
+      "[MetaAddressTab][register] normalized cavos address:",
+      normalizedCavosAddress,
+    );
     console.log("[MetaAddressTab][register] signer address:", signerAddress);
     console.log(
       "[MetaAddressTab][register] normalized signer address:",
       normalizedSignerAddress,
     );
-    console.log("[MetaAddressTab][register] registry address:", SEPOLIA_CONFIG.registryAddress);
-    console.log("[MetaAddressTab][register] configured chain id:", String(SEPOLIA_CONFIG.chainId));
+    console.log(
+      "[MetaAddressTab][register] registry address:",
+      SEPOLIA_CONFIG.registryAddress,
+    );
+    console.log(
+      "[MetaAddressTab][register] configured chain id:",
+      String(SEPOLIA_CONFIG.chainId),
+    );
     console.log("[MetaAddressTab][register] rpc url:", SEPOLIA_CONFIG.rpcUrl);
     console.log("[MetaAddressTab][register] calldata:", calldata);
     if (
@@ -358,8 +386,14 @@ export function MetaAddressTab({
         calldata: [signerAddress],
       });
       const hasMeta = BigInt(hasResult[0] ?? "0") !== 0n;
-      console.log("[MetaAddressTab][register] has_meta_address raw:", hasResult);
-      console.log("[MetaAddressTab][register] has_meta_address parsed:", hasMeta);
+      console.log(
+        "[MetaAddressTab][register] has_meta_address raw:",
+        hasResult,
+      );
+      console.log(
+        "[MetaAddressTab][register] has_meta_address parsed:",
+        hasMeta,
+      );
 
       let txHash: string;
       if (hasMeta) {
@@ -372,11 +406,14 @@ export function MetaAddressTab({
             "update_stealth_meta_address",
           );
           txHash = String(
-            await execute({
-              contractAddress: SEPOLIA_CONFIG.registryAddress,
-              entrypoint: "update_stealth_meta_address",
-              calldata,
-            }),
+            await execute(
+              {
+                contractAddress: SEPOLIA_CONFIG.registryAddress,
+                entrypoint: "update_stealth_meta_address",
+                calldata,
+              },
+              { gasless: false },
+            ),
           );
           console.log("[MetaAddressTab][register] update tx hash:", txHash);
           appendRegistrationLog(
@@ -384,7 +421,10 @@ export function MetaAddressTab({
           );
         } catch (error) {
           const updateErrorMessage = formatError(error);
-          console.error("[MetaAddressTab][register] update failed:", updateErrorMessage);
+          console.error(
+            "[MetaAddressTab][register] update failed:",
+            updateErrorMessage,
+          );
           appendRegistrationLog(`Update failed: ${updateErrorMessage}`);
           throw error;
         }
@@ -398,11 +438,14 @@ export function MetaAddressTab({
             "register_stealth_meta_address",
           );
           txHash = String(
-            await execute({
-              contractAddress: SEPOLIA_CONFIG.registryAddress,
-              entrypoint: "register_stealth_meta_address",
-              calldata,
-            }),
+            await execute(
+              {
+                contractAddress: SEPOLIA_CONFIG.registryAddress,
+                entrypoint: "register_stealth_meta_address",
+                calldata,
+              },
+              { gasless: false },
+            ),
           );
           console.log("[MetaAddressTab][register] register tx hash:", txHash);
           appendRegistrationLog(
@@ -410,7 +453,10 @@ export function MetaAddressTab({
           );
         } catch (error) {
           const registerErrorMessage = formatError(error);
-          console.error("[MetaAddressTab][register] register failed:", registerErrorMessage);
+          console.error(
+            "[MetaAddressTab][register] register failed:",
+            registerErrorMessage,
+          );
           const shouldFallbackToUpdate = registerErrorMessage
             .toLowerCase()
             .includes("already registered");
@@ -427,11 +473,14 @@ export function MetaAddressTab({
               "update_stealth_meta_address",
             );
             txHash = String(
-              await execute({
-                contractAddress: SEPOLIA_CONFIG.registryAddress,
-                entrypoint: "update_stealth_meta_address",
-                calldata,
-              }),
+              await execute(
+                {
+                  contractAddress: SEPOLIA_CONFIG.registryAddress,
+                  entrypoint: "update_stealth_meta_address",
+                  calldata,
+                },
+                { gasless: false },
+              ),
             );
             console.log(
               "[MetaAddressTab][register] update tx hash (after register fallback):",
@@ -453,7 +502,10 @@ export function MetaAddressTab({
       }
 
       setLastTxHash(txHash);
-      console.log("[MetaAddressTab][register] waiting for confirmation:", txHash);
+      console.log(
+        "[MetaAddressTab][register] waiting for confirmation:",
+        txHash,
+      );
       await provider.waitForTransaction(txHash);
       console.log("[MetaAddressTab][register] transaction confirmed:", txHash);
       appendRegistrationLog("Transaction confirmed.");
@@ -465,7 +517,10 @@ export function MetaAddressTab({
       appendRegistrationLog("Done.");
       console.groupEnd();
     } catch (error) {
-      console.error("[MetaAddressTab][register] flow failed:", formatError(error));
+      console.error(
+        "[MetaAddressTab][register] flow failed:",
+        formatError(error),
+      );
       appendRegistrationLog("Registration flow failed.");
       updateSyncState({
         status: "error",
@@ -484,8 +539,8 @@ export function MetaAddressTab({
         <CardHeader>
           <CardTitle>Generate your keys and register them on-chain</CardTitle>
           <CardDescription>
-            Generate local keys, register them on-chain, and fallback to update if
-            already registered.
+            Generate local keys, register them on-chain, and fallback to update
+            if already registered.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
@@ -557,7 +612,10 @@ export function MetaAddressTab({
                 <Button variant="outline" onClick={discardLocalKeys}>
                   Discard Local Keys
                 </Button>
-                <Button onClick={registerKeys} disabled={!keys || syncState.status === "syncing"}>
+                <Button
+                  onClick={registerKeys}
+                  disabled={!keys || syncState.status === "syncing"}
+                >
                   {syncState.status === "syncing"
                     ? "Registering..."
                     : "Register Keys On-Chain"}
@@ -580,7 +638,9 @@ export function MetaAddressTab({
 
               {registrationLogs.length ? (
                 <div className="rounded-md border p-4">
-                  <h4 className="mb-2 text-sm font-semibold">Registration Timeline</h4>
+                  <h4 className="mb-2 text-sm font-semibold">
+                    Registration Timeline
+                  </h4>
                   <ul className="grid gap-1 text-xs text-zinc-700 dark:text-zinc-300">
                     {registrationLogs.map((log, index) => (
                       <li key={`${log}-${index}`} className="font-mono">

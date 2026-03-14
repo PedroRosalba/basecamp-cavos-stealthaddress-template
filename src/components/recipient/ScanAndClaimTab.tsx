@@ -157,7 +157,8 @@ export function ScanAndClaimTab() {
 
       const spendingMatches =
         spendingPub.x === spendingX && spendingPub.y === spendingY;
-      const viewingMatches = viewingPub.x === viewingX && viewingPub.y === viewingY;
+      const viewingMatches =
+        viewingPub.x === viewingX && viewingPub.y === viewingY;
 
       if (spendingMatches && viewingMatches) {
         setValidationError(false);
@@ -248,8 +249,8 @@ export function ScanAndClaimTab() {
             Enter Your Keys
           </CardTitle>
           <CardDescription>
-            Keys generated in Meta-Address are auto-filled here. The meta-address
-            preview below is computed from these private keys.
+            Keys generated in Meta-Address are auto-filled here. The
+            meta-address preview below is computed from these private keys.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">

@@ -10,7 +10,7 @@
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,css,scss,md,json}\""
   },
   "dependencies": {
-    "@cavos/react": "^1.1.5",
+    "@cavos/react": "^1.1.6",
     "@starknet-stealth/sdk": "file:starknet-stealth-addresses/sdk",
     "@web3icons/react": "^4.1.17",
     "class-variance-authority": "^0.7.1",

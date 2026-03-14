@@ -116,7 +116,9 @@ export function SendStealthPaymentTab() {
           finalityStatus === "ACCEPTED_ON_L1"
         ) {
           if (executionStatus && executionStatus !== "SUCCEEDED") {
-            throw new Error(`Transaction ${String(executionStatus).toLowerCase()}`);
+            throw new Error(
+              `Transaction ${String(executionStatus).toLowerCase()}`,
+            );
           }
           return;
         }
@@ -290,18 +292,23 @@ export function SendStealthPaymentTab() {
 
       setIsStatusError(false);
       setStatusMessage("Deploying stealth account...");
-      const txHash = await executeWithRetryOnce("Deploy transaction", async () =>
-        String(
-          await execute({
-            contractAddress: SEPOLIA_CONFIG.factoryAddress,
-            entrypoint: "deploy_stealth_account",
-            calldata: [
-              stealthAddress.stealthPubkey.x.toString(),
-              stealthAddress.stealthPubkey.y.toString(),
-              salt.toString(),
-            ],
-          }),
-        ),
+      const txHash = await executeWithRetryOnce(
+        "Deploy transaction",
+        async () =>
+          String(
+            await execute(
+              {
+                contractAddress: SEPOLIA_CONFIG.factoryAddress,
+                entrypoint: "deploy_stealth_account",
+                calldata: [
+                  stealthAddress.stealthPubkey.x.toString(),
+                  stealthAddress.stealthPubkey.y.toString(),
+                  salt.toString(),
+                ],
+              },
+              { gasless: false },
+            ),
+          ),
       );
       setDeployTxHash(txHash);
 
@@ -346,23 +353,28 @@ export function SendStealthPaymentTab() {
         "Announcement transaction",
         async () =>
           String(
-            await execute({
-              contractAddress: SEPOLIA_CONFIG.registryAddress,
-              entrypoint: "announce",
-              calldata: [
-                schemeId.toString(),
-                stealthAddress.ephemeralPubkey.x.toString(),
-                stealthAddress.ephemeralPubkey.y.toString(),
-                stealthAddress.stealthAddress,
-                stealthAddress.viewTag.toString(),
-                "0",
-              ],
-            }),
+            await execute(
+              {
+                contractAddress: SEPOLIA_CONFIG.registryAddress,
+                entrypoint: "announce",
+                calldata: [
+                  schemeId.toString(),
+                  stealthAddress.ephemeralPubkey.x.toString(),
+                  stealthAddress.ephemeralPubkey.y.toString(),
+                  stealthAddress.stealthAddress,
+                  stealthAddress.viewTag.toString(),
+                  "0",
+                ],
+              },
+              { gasless: false },
+            ),
           ),
       );
       setAnnounceTxHash(txHash);
       setHasAnnounced(true);
-      setStatusMessage("Announcement confirmed. You can fund the stealth address.");
+      setStatusMessage(
+        "Announcement confirmed. You can fund the stealth address.",
+      );
     } catch (error) {
       setFailedStep("announce");
       setIsStatusError(true);
@@ -392,14 +404,23 @@ export function SendStealthPaymentTab() {
 
       setIsStatusError(false);
       setStatusMessage("Sending STRK to stealth address...");
-      const txHash = await executeWithRetryOnce("Funding transaction", async () =>
-        String(
-          await execute({
-            contractAddress: STRK_TOKEN_ADDRESS,
-            entrypoint: "transfer",
-            calldata: [stealthAddress.stealthAddress, amountLow, amountHigh],
-          }),
-        ),
+      const txHash = await executeWithRetryOnce(
+        "Funding transaction",
+        async () =>
+          String(
+            await execute(
+              {
+                contractAddress: STRK_TOKEN_ADDRESS,
+                entrypoint: "transfer",
+                calldata: [
+                  stealthAddress.stealthAddress,
+                  amountLow,
+                  amountHigh,
+                ],
+              },
+              { gasless: false },
+            ),
+          ),
       );
       setFundTxHash(txHash);
       setStatusMessage("Funding confirmed.");
